@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="432" height="432">
+  <!-- foxsinad launcher icon: a fox with a radar dish on its head.
+       108x108 adaptive-icon canvas; keep art inside the central 66-unit
+       circle (r=33 around 54,54), which every launcher mask shows. -->
+  <rect width="108" height="108" fill="#16324F"/>
+
+  <!-- dish mast -->
+  <rect x="52.5" y="45" width="3" height="5" fill="#8A94A0"/>
+
+  <!-- dish, feed and waves, tilted toward the upper right -->
+  <g transform="rotate(25 54 47) translate(54 47) scale(0.8) translate(-54 -47)">
+    <path d="M48.2,19.1 A9,9 0 0 1 59.8,19.1" fill="none" stroke="#7FD3FF" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M50.8,22.2 A5,5 0 0 1 57.2,22.2" fill="none" stroke="#7FD3FF" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M54,36 L54,27" stroke="#8A94A0" stroke-width="1.6"/>
+    <circle cx="54" cy="26" r="2" fill="#D9DEE5"/>
+    <path d="M43,36 A11,11 0 0 0 65,36 Z" fill="#D9DEE5"/>
+    <ellipse cx="54" cy="36" rx="11" ry="2.8" fill="#AEB7C2"/>
+  </g>
+
+  <!-- head -->
+  <path d="M31,36 L44,48 L64,48 L77,36 L79,60 L54,84 L29,60 Z" fill="#F07A1F"/>
+  <!-- inner ears -->
+  <path d="M34,41 L42,48.5 L36.5,52 Z" fill="#3B2416"/>
+  <path d="M74,41 L66,48.5 L71.5,52 Z" fill="#3B2416"/>
+  <!-- white cheeks and muzzle -->
+  <path d="M29,60 L46,64 L54,75 L62,64 L79,60 L54,84 Z" fill="#FFF5EA"/>
+  <!-- eyes and nose -->
+  <ellipse cx="44" cy="59" rx="2.4" ry="2.8" fill="#1B1B1B"/>
+  <ellipse cx="64" cy="59" rx="2.4" ry="2.8" fill="#1B1B1B"/>
+  <path d="M50.5,77 L57.5,77 L54,81.5 Z" fill="#1B1B1B"/>
+</svg>
