@@ -1,0 +1,120 @@
+package com.km6am.foxysinad
+
+import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import android.graphics.Typeface
+import android.media.AudioDeviceInfo
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import android.os.Bundle
+import android.util.Log
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
+import java.io.File
+import kotlin.concurrent.thread
+import kotlin.math.max
+
+private const val TAG = "FoxySinad"
+private const val FS = 48000
+private const val CHANNELS = 2
+private const val BLOCK_FRAMES = FS / 4  // 0.25 s, the bench analyzer's window
+
+/** Sanity check: USB audio in, foxsinad's SINAD analysis (in Python) out, as text. */
+class MainActivity : Activity() {
+    private lateinit var out: TextView
+    private lateinit var scroll: ScrollView
+    private val audio by lazy { getSystemService(AudioManager::class.java) }
+    @Volatile private var running = false
+
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        out = TextView(this).apply { setTextIsSelectable(true); typeface = Typeface.MONOSPACE; textSize = 11f }
+        val toggle = Button(this).apply { text = "Start" }
+        toggle.setOnClickListener {
+            if (running) { running = false; toggle.text = "Start" }
+            else { running = true; toggle.text = "Stop"; thread { measure(); runOnUiThread { toggle.text = "Start" } } }
+        }
+        scroll = ScrollView(this).apply { addView(out) }
+        setContentView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            fitsSystemWindows = true
+            setPadding(24, 24, 24, 24)
+            addView(toggle)
+            addView(scroll)
+        })
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+        if (!Python.isStarted()) Python.start(AndroidPlatform(this))
+        File(filesDir, "meter.txt").writeText("")
+        thread {
+            val meter = runCatching { Python.getInstance().getModule("meter") }
+                .getOrElse { return@thread report("python error: $it") }
+            for (f in listOf("versions", "selftest"))
+                report(runCatching { meter.callAttr(f).toString() }.getOrElse { "python error: $it" })
+        }
+    }
+
+    // Every line also goes to files/meter.txt, so a run can be read back over adb.
+    private fun report(line: String) {
+        Log.i(TAG, line)
+        File(filesDir, "meter.txt").appendText(line + "\n")
+        runOnUiThread {
+            out.append(line + "\n")
+            if (out.lineCount > 400) out.text = out.text.toString().lines().takeLast(300).joinToString("\n")
+            scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        }
+    }
+
+    private fun measure() {
+        try {
+            val meter = Python.getInstance().getModule("meter")
+            val usbIn = audio.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull {
+                it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+            } ?: return report("no USB audio input")
+            // UNPROCESSED only where the phone declares it; otherwise the
+            // least-processed source left is VOICE_RECOGNITION.
+            val unprocessed = audio.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
+            val source = if (unprocessed) MediaRecorder.AudioSource.UNPROCESSED
+                         else MediaRecorder.AudioSource.VOICE_RECOGNITION
+            val minBuf = AudioRecord.getMinBufferSize(FS, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+            val rec = AudioRecord.Builder()
+                .setAudioSource(source)
+                .setAudioFormat(AudioFormat.Builder().setSampleRate(FS)
+                    .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+                .setBufferSizeInBytes(max(minBuf * 4, BLOCK_FRAMES * CHANNELS * 2 * 4))
+                .build()
+            rec.setPreferredDevice(usbIn)
+            val block = ByteArray(BLOCK_FRAMES * CHANNELS * 2)
+            rec.startRecording()
+            try {
+                report("source ${if (unprocessed) "UNPROCESSED" else "VOICE_RECOGNITION"}, " +
+                    "routed '${rec.routedDevice?.productName}', ${rec.sampleRate} Hz, ${rec.channelCount} ch")
+                while (running) {
+                    var got = 0
+                    while (got < block.size && running) {
+                        val n = rec.read(block, got, block.size - got)
+                        if (n <= 0) return report("read error $n")
+                        got += n
+                    }
+                    if (got == block.size) report(meter.callAttr("block", block, CHANNELS, FS).toString())
+                }
+            } finally {
+                rec.stop()
+                rec.release()
+                report("stopped")
+            }
+        } catch (e: Exception) {
+            report("error: $e")
+        } finally {
+            running = false
+        }
+    }
+}
