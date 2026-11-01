@@ -75,13 +75,17 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
     }
 
+    // Logcat alone lost a run's lines once, so every line also goes to
+    // files/spike.txt (pull it with run-as, like spike.wav).
     private fun report(key: String, value: String) {
         Log.i(TAG, "$key $value")
+        File(filesDir, "spike.txt").appendText("$key $value\n")
         runOnUiThread { out.append("$key $value\n") }
     }
 
     private fun runAll() {
         runOnUiThread { out.text = "" }
+        File(filesDir, "spike.txt").writeText("")
         for (d in usb.deviceList.values) {
             val name = runCatching { "${d.manufacturerName} / ${d.productName}" }.getOrDefault("?")
             report("USB", "%04x:%04x %s".format(d.vendorId, d.productId, name))
