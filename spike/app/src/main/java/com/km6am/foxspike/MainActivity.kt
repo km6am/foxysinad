@@ -34,6 +34,7 @@ import com.hoho.android.usbserial.driver.ProbeTable
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
@@ -48,6 +49,9 @@ private const val TAG = "FoxSpike"
 private const val PICO_VID = 0x2E8A  // Raspberry Pi, as foxctl autodetects
 private const val FS = 48000
 private const val SECONDS = 10
+private const val CALLSIGN = "KM6AM"     // the Morse ID; the firmware won't transmit without one (or cabled mode)
+private const val OPER_ID_BIT = 1 shl 8  // STATus:OPERation bit 8: a Morse ID
+private val ERROR_REPLY = Regex("""[+-]?\d+,".*""")  // a SYST:ERR? reply: <code>,"<text>"
 
 class MainActivity : Activity() {
     private lateinit var out: TextView
@@ -90,45 +94,118 @@ class MainActivity : Activity() {
             val name = runCatching { "${d.manufacturerName} / ${d.productName}" }.getOrDefault("?")
             report("USB", "%04x:%04x %s".format(d.vendorId, d.productId, name))
         }
-        report("SERIAL", runCatching { serialCheck() }.getOrElse { "error: $it" })
-        report("AUDIO", runCatching { audioCheck() }.getOrElse { "error: $it" })
+        // The tone stays on through the capture, so with a radio receiving the
+        // PicoFox and its audio into the UFO202 this records the whole chain.
+        val fox = runCatching { openFox() }.getOrElse { report("SERIAL", "error: $it"); null }
+        try {
+            if (fox != null) report("TONE", runCatching { startTone(fox) }.getOrElse { "error: $it" })
+            val idBefore = fox?.let { runCatching { it.query("STAT:OPER?") }.getOrNull() }  // reading clears it
+            report("AUDIO", runCatching { audioCheck() }.getOrElse { "error: $it" })
+            if (fox != null && idBefore != null) {
+                val ev = runCatching { fox.query("STAT:OPER?").toInt() }.getOrDefault(0)
+                report("ID_OVERLAP", if (ev and OPER_ID_BIT != 0) "yes: a Morse ID started during the capture" else "no")
+            }
+        } finally {
+            if (fox != null) {
+                // OUTP OFF sends the ID owed for this transmission first (4-10 s).
+                report("OFF", runCatching { fox.write("OUTP OFF"); "output ${fox.query("OUTP?")}" }
+                    .getOrElse { "error: $it" })
+                fox.close()
+            }
+        }
         report("DONE", "")
     }
 
     // --- PicoFox over USB serial -------------------------------------------
 
-    private fun serialCheck(): String {
+    private fun openFox(): Fox? {
         val dev = usb.deviceList.values.firstOrNull { it.vendorId == PICO_VID }
-            ?: return "no PicoFox (VID 2e8a) found"
-        if (!usb.hasPermission(dev) && !askPermission(dev)) return "USB permission denied"
+            ?: return null.also { report("SERIAL", "no PicoFox (VID 2e8a) found") }
+        if (!usb.hasPermission(dev) && !askPermission(dev))
+            return null.also { report("SERIAL", "USB permission denied") }
         // A one-entry probe table, so the generic CDC driver is used whatever the PID.
         val table = ProbeTable().apply { addProduct(dev.vendorId, dev.productId, CdcAcmSerialDriver::class.java) }
-        val driver = UsbSerialProber(table).probeDevice(dev) ?: return "no CDC driver matched"
-        val conn = usb.openDevice(dev) ?: return "openDevice failed"
+        val driver = UsbSerialProber(table).probeDevice(dev)
+            ?: return null.also { report("SERIAL", "no CDC driver matched") }
+        val conn = usb.openDevice(dev) ?: return null.also { report("SERIAL", "openDevice failed") }
         val port = driver.ports[0]
-        return try {
-            port.open(conn)
-            port.setParameters(115200, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
-            port.dtr = true
-            port.rts = true
-            Thread.sleep(100)
-            // HELLO is the pre-0.4 firmware's greeting; *IDN? is 0.4.0's.
-            listOf("HELLO", "*IDN?").joinToString("; ") { "$it -> ${exchange(port, it)}" }
-        } finally {
-            runCatching { port.close() }
+        port.open(conn)
+        port.setParameters(115200, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+        port.dtr = true
+        port.rts = true
+        Thread.sleep(100)
+        val fox = Fox(port)
+        val idn = runCatching { fox.query("*IDN?", timeoutMs = 3000) }.getOrElse { fox.close(); throw it }
+        report("SERIAL", idn)
+        if (!idn.startsWith("FOXSINAD,")) {
+            fox.close()
+            return null.also { report("SERIAL", "not foxsinad_fw 0.4.0 or later; flash it with tools/flash.py") }
         }
+        return fox
     }
 
-    private fun exchange(port: UsbSerialPort, cmd: String): String {
-        port.write("$cmd\n".toByteArray(), 500)
-        val reply = StringBuilder()
-        val buf = ByteArray(256)
-        val end = System.currentTimeMillis() + 1000
-        while (System.currentTimeMillis() < end && '\n' !in reply) {
-            val n = port.read(buf, 200)
-            if (n > 0) reply.append(String(buf, 0, n, Charsets.US_ASCII))
+    /** The full setup after connecting (docs/API.md, Startup state), then RF on. */
+    private fun startTone(fox: Fox): String {
+        fox.write("*CLS")
+        fox.write("IDEN:CALL \"$CALLSIGN\"")
+        fox.write("FREQ 145.550000MHZ")
+        fox.write("POW:ATT 31.75")  // maximum attenuation: attenuator step 127
+        fox.write("FM:DEV 3000;:FM:INT:FREQ 1000;:FM:STAT ON")
+        fox.write("OUTP ON")
+        return "FREQ ${fox.query("FREQ?")} POW:ATT ${fox.query("POW:ATT?")} " +
+            "FM ${fox.query("FM:INT:FREQ?")} Hz at ${fox.query("FM:DEV?")} Hz, OUTP ${fox.query("OUTP?")}, " +
+            "call ${fox.query("IDEN:CALL?")}"
+    }
+
+    /** foxctl's idiom in Kotlin: each message is followed by SYST:ERR? and
+     *  *OPC? on lines of their own (a command error skips the rest of its
+     *  line), and the "1" from *OPC? after an error reply ends the exchange. */
+    private class Fox(private val port: UsbSerialPort) {
+        private val pending = StringBuilder()
+        private val buf = ByteArray(256)
+
+        fun write(cmd: String) = check(cmd, call(cmd).second)
+
+        fun query(q: String, timeoutMs: Long = 40_000): String {
+            val (reply, error) = call(q, timeoutMs)
+            check(q, error)
+            return reply ?: ""
         }
-        return reply.toString().trim().ifEmpty { "(no reply)" }
+
+        fun close() { runCatching { port.close() } }
+
+        private fun check(cmd: String, error: String) {
+            if (!error.startsWith("0,")) throw IOException("'$cmd': $error")
+        }
+
+        // 40 s by default: a command that waits for, or sends, a Morse ID can take that long.
+        private fun call(cmd: String, timeoutMs: Long = 40_000): Pair<String?, String> {
+            pending.clear()
+            port.write("$cmd\nSYST:ERR?\n*OPC?\n".toByteArray(Charsets.US_ASCII), 1000)
+            val deadline = System.currentTimeMillis() + timeoutMs
+            val got = mutableListOf<String>()
+            while (!(got.size >= 2 && got.last() == "1" && ERROR_REPLY.matches(got[got.size - 2]))) {
+                got += readLine(deadline) ?: throw IOException("'$cmd': no reply in ${timeoutMs / 1000} s, got $got")
+            }
+            if (got.size > 3) throw IOException("'$cmd': unexpected replies $got")
+            return (if (got.size == 3) got[0] else null) to got[got.size - 2]
+        }
+
+        /** The next non-empty line, or null at the deadline. */
+        private fun readLine(deadline: Long): String? {
+            while (true) {
+                val i = pending.indexOf("\n")
+                if (i >= 0) {
+                    val line = pending.substring(0, i).trim()
+                    pending.delete(0, i + 1)
+                    if (line.isNotEmpty()) return line
+                    continue
+                }
+                if (System.currentTimeMillis() > deadline) return null
+                val n = port.read(buf, 200)
+                if (n > 0) pending.append(String(buf, 0, n, Charsets.US_ASCII))
+            }
+        }
     }
 
     private fun askPermission(dev: UsbDevice): Boolean {
