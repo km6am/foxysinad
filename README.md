@@ -4,16 +4,20 @@ Android field kit for the foxsinad desense measurements: a Pixel phone on a
 USB hub drives the PicoFox (foxsinad_fw 0.4.0, SCPI over USB CDC) and reads
 receiver audio from a USB sound card (Behringer UFO202).
 
-Status: the app (`app/`) is a sanity check so far: USB audio in, SINAD out as
-text, computed on the phone by foxsinad's own analysis running under Chaquopy
-(Python 3.10, numpy 1.23.3, SciPy 1.8.1). Build with `gradle assembleDebug`;
-it needs a Python 3.10 on the Mac for Chaquopy (default
-`~/miniconda3/envs/chaq310`, or set `FOXYSINAD_BUILD_PYTHON`).
+Status: the app (`app/`) is foxsinad's bench page in a WebView, talking to
+foxsinad's bench engine (Python, under Chaquopy: Python 3.10, numpy 1.23.3,
+SciPy 1.8.1) through `window.FoxsinadBridge`, the transport the page already
+has for Android. Build with `gradle assembleDebug`; it needs a Python 3.10 on
+the Mac for Chaquopy (default `~/miniconda3/envs/chaq310`, or set
+`FOXYSINAD_BUILD_PYTHON`).
 
-The analysis is a fork: `app/src/main/python/analysis.py` (foxsinad's DSP) and
-`sinad_meter/` (charlieh0tel/sinad_meter, MIT). `foxctl.py` is a copy of foxsinad-firmware's driver (`tools/foxctl.py`, at
-956f757), driven over the phone's USB link. Run `./check_fork.sh` now and
-then to see whether foxsinad or the firmware repo has moved on since.
+No copies: the build takes the engine, analysis, calibration table and page
+from the `~/foxsinad` checkout and the PicoFox driver (`tools/foxctl.py`) from
+`~/foxsinad-firmware` (`-Pfoxsinad=` / `-PfoxsinadFirmware=` for others), and
+records their commits in `foxsinad_build.py` (`+dirty` if uncommitted), which
+the app logs at startup. The phone-only Python is `phone.py` (the bridge) and
+`phone_engine.py`, an Engine subclass that opens the PicoFox over Android's
+USB link and feeds the analyzer from AudioRecord.
 
 - `spike/` - one-button test app: opens the PicoFox (`*IDN?`), sets it to
   145.550 MHz, maximum attenuation (POW:ATT 31.75) and a 1 kHz tone at 3 kHz
