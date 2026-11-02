@@ -96,6 +96,13 @@ class PhoneEngine(Engine):
         self._capture = capture
         super().__init__(runs_dir=runs_dir)
 
+    def cmd_setup(self, **fields):
+        """Monitor ("play the audio") is the phone's speaker, switched live."""
+        out = super().cmd_setup(**fields)
+        if "monitor" in fields:
+            self._capture.setMonitor(bool(self.setup["monitor"]))
+        return out
+
     def _open_fox(self):
         link = self._usb.open()
         if link is None:
@@ -103,7 +110,6 @@ class PhoneEngine(Engine):
         return picofox.PicoFox(transport=_Link(link))
 
     def _open_analyzer(self):
-        if self.setup["monitor"]:
-            self.log("listening along isn't available on the phone yet", "warn")
+        self._capture.setMonitor(bool(self.setup["monitor"]))
         dump = os.path.join(os.path.dirname(str(self.runs_dir)), "last_capture.raw")
         return _FedAnalyzer(self._capture, self.log, dump), "USB audio (Android)"
