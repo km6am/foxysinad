@@ -54,8 +54,29 @@ android {
         minSdk = 33
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1"
+        versionName = "0.1.0"
         ndk { abiFilters += listOf("arm64-v8a") }
+    }
+    // Release signing: the key and its passwords stay outside the repo, in
+    // ~/.gradle/gradle.properties (foxysinad.keystore, .storePassword,
+    // .keyAlias, .keyPassword; README, "Release"). Without them the release
+    // APK is built unsigned. Updates only install over an APK signed with
+    // the same key, so the keystore must be kept, and backed up.
+    val keystore = findProperty("foxysinad.keystore") as String?
+    signingConfigs {
+        if (keystore != null) create("release") {
+            storeFile = file(keystore)
+            storePassword = findProperty("foxysinad.storePassword") as String?
+            keyAlias = findProperty("foxysinad.keyAlias") as String? ?: "foxysinad"
+            keyPassword = findProperty("foxysinad.keyPassword") as String?
+                ?: findProperty("foxysinad.storePassword") as String?
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false      // Chaquopy and the bridge are reached by reflection
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
+        }
     }
     sourceSets.getByName("main").assets.srcDir(genAssets.get().asFile)
 }

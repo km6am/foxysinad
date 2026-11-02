@@ -39,6 +39,31 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Checkouts elsewhere: `-Pfoxsinad=/path -PfoxsinadFirmware=/path`. When the
 phone's one USB port holds the hub, install over Wi-Fi adb.
 
+## Release
+
+Users install the signed APK from the GitHub release: open it on the phone
+and allow the browser (or Files) to install apps, or follow the repo with
+Obtainium for updates. Runs are shared from the Finish step.
+
+Signing, once per maintainer. The key and its passwords never enter the repo;
+keep a backup of the keystore, since updates only install over an APK signed
+with the same key:
+
+```bash
+keytool -genkeypair -v -keystore ~/.android/foxysinad-release.jks -alias foxysinad -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Then in `~/.gradle/gradle.properties` (not this repo's):
+
+```properties
+foxysinad.keystore=/Users/you/.android/foxysinad-release.jks
+foxysinad.storePassword=...
+```
+
+`gradle assembleRelease` writes `app/build/outputs/apk/release/app-release.apk`.
+A phone with the debug build has to uninstall it first (different key), which
+deletes its runs: share them before.
+
 ## License
 
 MIT (see [LICENSE](LICENSE)). The app bundles foxsinad (MIT) and its
