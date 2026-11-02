@@ -55,7 +55,6 @@ class MainActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
         if (!Python.isStarted()) Python.start(AndroidPlatform(this))
-        File(filesDir, "meter.txt").writeText("")
         thread {
             val meter = runCatching { Python.getInstance().getModule("meter") }
                 .getOrElse { return@thread report("python error: $it") }
@@ -64,7 +63,8 @@ class MainActivity : Activity() {
         }
     }
 
-    // Every line also goes to files/meter.txt, so a run can be read back over adb.
+    // Every line also goes to files/meter.txt (the startup lines, then the
+    // latest run), so a run can be read back over adb.
     private fun report(line: String) {
         Log.i(TAG, line)
         File(filesDir, "meter.txt").appendText(line + "\n")
@@ -76,6 +76,9 @@ class MainActivity : Activity() {
     }
 
     private fun measure() {
+        // A fresh file per run, not per screen: Android recreates the screen
+        // when a USB device comes or goes, which used to wipe the last run.
+        File(filesDir, "meter.txt").writeText("")
         var link: UsbLink? = null
         try {
             val py = Python.getInstance()
