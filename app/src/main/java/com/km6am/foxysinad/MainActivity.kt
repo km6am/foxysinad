@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.Window
 import android.view.WindowInsets
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -27,6 +28,9 @@ class MainActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         requestWindowFeature(Window.FEATURE_NO_TITLE)  // the page has its own top bar
+        // Android hands silent audio to an app that isn't on screen, so for
+        // now the screen stays on (a foreground service will replace this).
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
         WebView.setWebContentsDebuggingEnabled(true)   // chrome://inspect
