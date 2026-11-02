@@ -35,7 +35,13 @@ def block(pcm, channels, fs):
 
 def selftest(runs=20):
     """Times block() on a synthetic 0.25 s, 1 kHz tone with noise: the phone's
-    own speed, without any hardware attached."""
+    own speed, without any hardware attached.
+
+    Back to back, as here, the Pixel 10 Pro takes ~2 ms. At the live cadence,
+    one call per 0.25 s, the same call took ~15 ms (measured 2026-11-01, same
+    data, only the spacing changed): Android runs short periodic work on a
+    slower, cheaper core. That is the phone saving power, not a cost in this
+    code, and is still ~6% of the 250 ms budget."""
     t = np.arange(12000) / 48000
     x = 0.3 * np.sin(2 * np.pi * 1000 * t) + 0.003 * np.random.default_rng(0).normal(size=t.size)
     pcm = np.repeat((x * 32767).astype("<i2")[:, None], 2, axis=1).tobytes()
