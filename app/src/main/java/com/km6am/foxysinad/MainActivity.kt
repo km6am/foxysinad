@@ -2,6 +2,8 @@ package com.km6am.foxysinad
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
@@ -12,8 +14,10 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.core.content.FileProvider
 import com.chaquo.python.PyObject
 import org.json.JSONObject
+import java.io.File
 import kotlin.concurrent.thread
 
 private const val TAG = "FoxySinad"
@@ -74,6 +78,37 @@ class MainActivity : Activity() {
     inner class Bridge {
         @JavascriptInterface
         fun send(json: String): String = phone!!.callAttr("handle", json).toString()
+
+        /** The folder's finished CSVs (and any PNGs) to Android's share sheet:
+         *  Drive, email, Files, a nearby computer. Only folders inside runs/.
+         *  Returns "" or what went wrong, for the page's toast. */
+        @JavascriptInterface
+        fun share(folder: String): String {
+            val runs = File(filesDir, "runs").canonicalFile
+            val dir = File(folder).canonicalFile
+            if (dir != runs && !dir.path.startsWith(runs.path + File.separator))
+                return "only the app's runs can be shared"
+            val files = dir.listFiles { f ->
+                f.isFile && f.extension in setOf("csv", "png") && !f.name.endsWith(".partial.csv")
+            }.orEmpty().sortedBy { it.name }
+            if (files.isEmpty()) return "no finished files in ${dir.name}"
+            val uris = ArrayList(files.map {
+                FileProvider.getUriForFile(this@MainActivity, "$packageName.files", it)
+            })
+            val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = if (files.all { it.extension == "csv" }) "text/csv" else "*/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                putExtra(Intent.EXTRA_SUBJECT, "Foxy SINAD: ${dir.name}")
+                // the grant reaches the chosen app through the clip
+                clipData = ClipData.newRawUri(null, uris[0]).also { c ->
+                    uris.drop(1).forEach { c.addItem(ClipData.Item(it)) }
+                }
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            Log.i(TAG, "share: ${files.size} files from ${dir.name}")
+            runOnUiThread { startActivity(Intent.createChooser(send, "Share ${files.size} files")) }
+            return ""
+        }
     }
 
     inner class Sink {

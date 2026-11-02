@@ -78,4 +78,5 @@ chaquopy {
 
 dependencies {
     implementation("com.github.mik3y:usb-serial-for-android:3.11.0")
+    implementation("androidx.core:core:1.13.1")       // FileProvider, for sharing runs
 }
