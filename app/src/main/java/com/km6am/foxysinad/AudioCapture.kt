@@ -6,10 +6,12 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 import com.chaquo.python.PyObject
 import kotlin.concurrent.thread
 import kotlin.math.max
 
+private const val TAG = "FoxySinad"
 private const val FS = 48000
 private const val CHANNELS = 2
 private const val BLOCK_FRAMES = FS / 4  // 0.25 s, the analyzer's window
@@ -44,19 +46,31 @@ class AudioCapture(private val context: Context) {
         val flag = booleanArrayOf(true).also { running = it }
         thread(name = "AudioCapture") {
             val block = ByteArray(BLOCK_FRAMES * CHANNELS * 2)
+            var blocks = 0
+            var why: String? = null
             try {
-                while (flag[0]) {
+                read@ while (flag[0]) {
                     var got = 0
                     while (got < block.size && flag[0]) {
                         val n = rec.read(block, got, block.size - got)
-                        if (n <= 0) return@thread
+                        if (n <= 0) { why = "AudioRecord.read returned $n"; break@read }
                         got += n
                     }
-                    if (got == block.size) analyzer.callAttr("feed", block, CHANNELS)
+                    if (got < block.size) continue
+                    if (blocks == 0) Log.i(TAG, "first audio block read")
+                    analyzer.callAttr("feed", block, CHANNELS)
+                    if (blocks++ == 0) Log.i(TAG, "first audio block fed")
                 }
+            } catch (e: Exception) {
+                why = "$e"
             } finally {
                 rec.stop()
                 rec.release()
+            }
+            // Only an unasked-for end is news; the analyzer logs it if a mode is still reading.
+            if (why != null) {
+                Log.w(TAG, "audio capture ended after $blocks blocks: $why")
+                runCatching { analyzer.callAttr("ended", "$why (after $blocks blocks)") }
             }
         }
         return "audio: ${if (unprocessed) "UNPROCESSED" else "VOICE_RECOGNITION"} from " +

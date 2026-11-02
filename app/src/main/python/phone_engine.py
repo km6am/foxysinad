@@ -56,6 +56,11 @@ class _FedAnalyzer:
             x = np.frombuffer(bytes(pcm), dtype="<i2").reshape(-1, channels)[:, 0] / 32768.0
             self._an.feed(x)
 
+    def ended(self, why):
+        """From the capture thread, when it stopped without being asked."""
+        if self._open:
+            self._log(f"audio capture ended: {why}", "error")
+
     def __getattr__(self, name):    # read(), fs, ... as the analyzer's
         return getattr(self._an, name)
 
