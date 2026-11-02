@@ -3,11 +3,16 @@ PicoFox comes over Android's USB link (foxctl's transport=), and the audio
 comes from AudioRecord, fed to a SinadAnalyzer(None). Everything else, the
 modes, the safety rules and the messages, is foxsinad's, unchanged."""
 
+import os
+
 import numpy as np
 
 from foxsinad import picofox
 from foxsinad.analyzer import SinadAnalyzer
 from foxsinad.app.engine import CommandError, Engine
+
+
+DUMP_BLOCKS = 8   # 2 s of 0.25 s blocks
 
 
 class _Link:
@@ -33,14 +38,17 @@ class _FedAnalyzer:
     """A SinadAnalyzer(None) that Kotlin's AudioCapture feeds while it's
     open: recording runs only while a mode is measuring."""
 
-    def __init__(self, capture, log):
+    def __init__(self, capture, log, dump_path):
         self._an = SinadAnalyzer(None)
         self._capture = capture
         self._log = log
+        self._dump_path = dump_path
+        self._dump = []
         self._open = False
 
     def __enter__(self):
         self._an.__enter__()
+        self._dump = []
         self._open = True
         self._log(str(self._capture.start(self)))   # raises if there's no USB audio input
         return self
@@ -53,8 +61,25 @@ class _FedAnalyzer:
     def feed(self, pcm, channels):
         """From the capture thread: 16-bit interleaved PCM; channel 0 is measured."""
         if self._open:
-            x = np.frombuffer(bytes(pcm), dtype="<i2").reshape(-1, channels)[:, 0] / 32768.0
-            self._an.feed(x)
+            raw = bytes(pcm)
+            frames = np.frombuffer(raw, dtype="<i2").reshape(-1, channels)
+            if len(self._dump) < DUMP_BLOCKS:
+                self._first_blocks(raw, frames)
+            self._an.feed(frames[:, 0] / 32768.0)
+
+    def _first_blocks(self, raw, frames):
+        """Diagnostics: the first block's level per channel on the page, and
+        the first 2 s as raw PCM (48 kHz, 16-bit LE, interleaved) in files/."""
+        if not self._dump:
+            f = frames.astype(float) / 32768.0
+            peak = 20 * np.log10(np.maximum(np.abs(f).max(axis=0), 1e-6))
+            rms = 20 * np.log10(np.maximum(np.sqrt((f ** 2).mean(axis=0)), 1e-6))
+            self._log("first audio block: " + ", ".join(
+                f"ch{c} peak {p:.1f} rms {r:.1f} dBFS" for c, (p, r) in enumerate(zip(peak, rms))))
+        self._dump.append(raw)
+        if len(self._dump) == DUMP_BLOCKS:
+            with open(self._dump_path, "wb") as fh:
+                fh.write(b"".join(self._dump))
 
     def ended(self, why):
         """From the capture thread, when it stopped without being asked."""
@@ -80,4 +105,5 @@ class PhoneEngine(Engine):
     def _open_analyzer(self):
         if self.setup["monitor"]:
             self.log("listening along isn't available on the phone yet", "warn")
-        return _FedAnalyzer(self._capture, self.log), "USB audio (Android)"
+        dump = os.path.join(os.path.dirname(str(self.runs_dir)), "last_capture.raw")
+        return _FedAnalyzer(self._capture, self.log, dump), "USB audio (Android)"
