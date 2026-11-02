@@ -3,7 +3,6 @@ PicoFox comes over Android's USB link (foxctl's transport=), and the audio
 comes from AudioRecord, fed to a SinadAnalyzer(None). Everything else, the
 modes, the safety rules and the messages, is foxsinad's, unchanged."""
 
-import json
 import os
 
 import numpy as np
@@ -92,31 +91,10 @@ class _FedAnalyzer:
 
 
 class PhoneEngine(Engine):
-    """Also keeps the Run setup across restarts (an app update, or Android
-    stopping the app), all but cabled mode, which is confirmed each session."""
-
     def __init__(self, usb, capture, runs_dir):
         self._usb = usb
         self._capture = capture
-        self._saved = None
         super().__init__(runs_dir=runs_dir)
-        self._setup_file = os.path.join(os.path.dirname(str(self.runs_dir)), "setup.json")
-        try:
-            with open(self._setup_file) as fh:
-                saved = json.load(fh)
-            saved.pop("cabled", None)
-            self.cmd_setup(**{k: v for k, v in saved.items() if k in self.setup})
-        except FileNotFoundError:
-            pass
-        except Exception as e:      # a bad file costs the saved setup, nothing more
-            self.log(f"saved setup not restored: {e}", "warn")
-
-    def _state_changed(self):
-        super()._state_changed()
-        if getattr(self, "_setup_file", None) and self.setup != self._saved:
-            self._saved = dict(self.setup)
-            with open(self._setup_file, "w") as fh:
-                json.dump(self.setup, fh)
 
     def _open_fox(self):
         link = self._usb.open()

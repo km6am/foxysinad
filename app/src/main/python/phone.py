@@ -24,7 +24,13 @@ def create(usb, capture, files_dir):
         # foxsinad.picofox loads foxctl.py from here; Kotlin copied it out of the APK.
         os.environ["FOXSINAD_FIRMWARE"] = os.path.join(files_dir, "foxsinad-firmware")
         from phone_engine import PhoneEngine
-        _engine = PhoneEngine(usb, capture, os.path.join(files_dir, "runs"))
+        runs = os.path.join(files_dir, "runs")
+        # The engine keeps the setup in runs/ now; this app kept it in files/ first.
+        old, new = os.path.join(files_dir, "setup.json"), os.path.join(runs, "setup.json")
+        if os.path.exists(old) and not os.path.exists(new):
+            os.makedirs(runs, exist_ok=True)
+            os.replace(old, new)
+        _engine = PhoneEngine(usb, capture, runs)
         for line in (versions(), selftest()):
             print(line)             # logcat (python.stdout): no page is listening yet
             _engine.log(line)
