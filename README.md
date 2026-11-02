@@ -19,12 +19,32 @@ the app logs at startup. The phone-only Python is `phone.py` (the bridge) and
 `phone_engine.py`, an Engine subclass that opens the PicoFox over Android's
 USB link and feeds the analyzer from AudioRecord.
 
-- `spike/` - one-button test app: opens the PicoFox (`*IDN?`), sets it to
-  145.550 MHz, maximum attenuation (POW:ATT 31.75) and a 1 kHz tone at 3 kHz
-  deviation with callsign KM6AM, records 10 s from the USB audio input with
-  the tone on, then turns the output off (which sends the Morse ID owed). `compare.py` scores the
-  phone's recording against one made on the Mac (needs `foxsinad` importable).
 - `icon/` - launcher icon source (fox with a radar dish), 108x108 adaptive canvas.
 
-Depends on `~/foxsinad` (the Python engine, analyzer and UI page); see
-foxsinad's CLAUDE.md for the API other repos rely on.
+Depends on [foxsinad](https://github.com/km6am/foxsinad) (the Python engine,
+analyzer and UI page) and
+[foxsinad-firmware](https://github.com/km6am/foxsinad-firmware) (the PicoFox
+driver); see foxsinad's CLAUDE.md for the API other repos rely on.
+
+## Build
+
+```bash
+git clone --recursive https://github.com/km6am/foxsinad ~/foxsinad
+git clone https://github.com/km6am/foxsinad-firmware ~/foxsinad-firmware
+git clone https://github.com/km6am/foxysinad ~/foxysinad
+cd ~/foxysinad && gradle assembleDebug     # JDK 17; Android SDK in local.properties
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Checkouts elsewhere: `-Pfoxsinad=/path -PfoxsinadFirmware=/path`. When the
+phone's one USB port holds the hub, install over Wi-Fi adb.
+
+## License
+
+MIT (see [LICENSE](LICENSE)). The app bundles foxsinad (MIT) and its
+sinad_meter submodule (MIT) at build time. The firmware it drives is
+CC BY-NC-SA 4.0, a derivative of AI6YM's PicoFox-Firmware.
+
+SINAD figures are estimates from a sound-card analyzer, not calibrated
+laboratory measurements. Cabled mode sends no Morse ID: use it only into a
+load or test equipment, never an antenna.
