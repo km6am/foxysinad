@@ -11,8 +11,9 @@ it needs a Python 3.10 on the Mac for Chaquopy (default
 `~/miniconda3/envs/chaq310`, or set `FOXYSINAD_BUILD_PYTHON`).
 
 The analysis is a fork: `app/src/main/python/analysis.py` (foxsinad's DSP) and
-`sinad_meter/` (charlieh0tel/sinad_meter, MIT). Run `./check_fork.sh` now and
-then to see whether foxsinad has moved on since the fork.
+`sinad_meter/` (charlieh0tel/sinad_meter, MIT). `foxctl.py` is a copy of foxsinad-firmware's driver (`tools/foxctl.py`, at
+956f757), driven over the phone's USB link. Run `./check_fork.sh` now and
+then to see whether foxsinad or the firmware repo has moved on since.
 
 - `spike/` - one-button test app: opens the PicoFox (`*IDN?`), sets it to
   145.550 MHz, maximum attenuation (POW:ATT 31.75) and a 1 kHz tone at 3 kHz

@@ -1,8 +1,10 @@
 #!/bin/sh
-# Is the forked analysis still in step with foxsinad? Lists foxsinad commits
+# Is the forked code still in step? The analysis with foxsinad, foxctl with
+# foxsinad-firmware. Lists foxsinad commits
 # since the fork that touch the forked code, and diffs the copied sinad_meter
 # files against foxsinad's current ones. Silent apart from the headings = in step.
 FOXSINAD=${FOXSINAD_REPO:-$HOME/foxsinad}
+FIRMWARE=${FOXSINAD_FIRMWARE:-$HOME/foxsinad-firmware}
 PY=app/src/main/python
 BASE=$(sed -n 's/^FORKED_FROM = "foxsinad \([0-9a-f]*\),.*/\1/p' $PY/analysis.py)
 echo "== foxsinad commits since $BASE touching the forked code"
@@ -12,3 +14,5 @@ for f in filters.py sinad.py LICENSE vendored/__init__.py vendored/pysnr/__init_
          vendored/pysnr/sinad.py vendored/pysnr/utils.py vendored/pysnr/LICENSE; do
     diff -u "$FOXSINAD/third_party/sinad_meter/$f" "$PY/sinad_meter/$f" || true
 done
+echo "== foxctl.py copy vs $FIRMWARE/tools/foxctl.py"
+diff -u "$FIRMWARE/tools/foxctl.py" "$PY/foxctl.py" || true

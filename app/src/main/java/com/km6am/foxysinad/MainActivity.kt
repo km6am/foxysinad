@@ -15,6 +15,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import java.io.File
@@ -25,8 +26,10 @@ private const val TAG = "FoxySinad"
 private const val FS = 48000
 private const val CHANNELS = 2
 private const val BLOCK_FRAMES = FS / 4  // 0.25 s, the bench analyzer's window
+private const val POLL_BLOCKS = 16       // a fox status round trip every 4 s, well inside its 60 s host timeout
 
-/** Sanity check: USB audio in, foxsinad's SINAD analysis (in Python) out, as text. */
+/** Sanity check: the PicoFox on (via foxctl over USB, if plugged in) and USB
+ *  audio in, foxsinad's SINAD analysis (in Python) out, as text. */
 class MainActivity : Activity() {
     private lateinit var out: TextView
     private lateinit var scroll: ScrollView
@@ -73,48 +76,67 @@ class MainActivity : Activity() {
     }
 
     private fun measure() {
+        var link: UsbLink? = null
         try {
-            val meter = Python.getInstance().getModule("meter")
+            val py = Python.getInstance()
+            val meter = py.getModule("meter")
+            val bench = py.getModule("bench")
             val usbIn = audio.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
             } ?: return report("no USB audio input")
-            // UNPROCESSED only where the phone declares it; otherwise the
-            // least-processed source left is VOICE_RECOGNITION.
-            val unprocessed = audio.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
-            val source = if (unprocessed) MediaRecorder.AudioSource.UNPROCESSED
-                         else MediaRecorder.AudioSource.VOICE_RECOGNITION
-            val minBuf = AudioRecord.getMinBufferSize(FS, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-            val rec = AudioRecord.Builder()
-                .setAudioSource(source)
-                .setAudioFormat(AudioFormat.Builder().setSampleRate(FS)
-                    .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-                .setBufferSizeInBytes(max(minBuf * 4, BLOCK_FRAMES * CHANNELS * 2 * 4))
-                .build()
-            rec.setPreferredDevice(usbIn)
-            val block = ByteArray(BLOCK_FRAMES * CHANNELS * 2)
-            rec.startRecording()
+            link = UsbLink.open(this)
             try {
-                report("source ${if (unprocessed) "UNPROCESSED" else "VOICE_RECOGNITION"}, " +
-                    "routed '${rec.routedDevice?.productName}', ${rec.sampleRate} Hz, ${rec.channelCount} ch")
-                while (running) {
-                    var got = 0
-                    while (got < block.size && running) {
-                        val n = rec.read(block, got, block.size - got)
-                        if (n <= 0) return report("read error $n")
-                        got += n
-                    }
-                    if (got == block.size) report(meter.callAttr("block", block, CHANNELS, FS).toString())
-                }
+                if (link == null) report("no PicoFox: measuring audio only")
+                else report(bench.callAttr("start", link).toString())
+                record(meter, if (link != null) bench else null, usbIn)
             } finally {
-                rec.stop()
-                rec.release()
-                report("stopped")
+                // Whatever failed, the output goes off (after the ID owed).
+                if (link != null) report(runCatching { bench.callAttr("stop").toString() }.getOrElse { "fox error: $it" })
             }
         } catch (e: Exception) {
             report("error: $e")
         } finally {
+            link?.close()
             running = false
+            report("stopped")
+        }
+    }
+
+    private fun record(meter: PyObject, bench: PyObject?, usbIn: AudioDeviceInfo) {
+        // UNPROCESSED only where the phone declares it; otherwise the
+        // least-processed source left is VOICE_RECOGNITION.
+        val unprocessed = audio.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
+        val source = if (unprocessed) MediaRecorder.AudioSource.UNPROCESSED
+                     else MediaRecorder.AudioSource.VOICE_RECOGNITION
+        val minBuf = AudioRecord.getMinBufferSize(FS, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+        val rec = AudioRecord.Builder()
+            .setAudioSource(source)
+            .setAudioFormat(AudioFormat.Builder().setSampleRate(FS)
+                .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+            .setBufferSizeInBytes(max(minBuf * 4, BLOCK_FRAMES * CHANNELS * 2 * 4))
+            .build()
+        rec.setPreferredDevice(usbIn)
+        val block = ByteArray(BLOCK_FRAMES * CHANNELS * 2)
+        rec.startRecording()
+        try {
+            report("source ${if (unprocessed) "UNPROCESSED" else "VOICE_RECOGNITION"}, " +
+                "routed '${rec.routedDevice?.productName}', ${rec.sampleRate} Hz, ${rec.channelCount} ch")
+            var blocks = 0
+            while (running) {
+                var got = 0
+                while (got < block.size && running) {
+                    val n = rec.read(block, got, block.size - got)
+                    if (n <= 0) return report("read error $n")
+                    got += n
+                }
+                if (got == block.size) report(meter.callAttr("block", block, CHANNELS, FS).toString())
+                if (bench != null && ++blocks % POLL_BLOCKS == 0)
+                    report(runCatching { bench.callAttr("poll").toString() }.getOrElse { "fox error: $it" })
+            }
+        } finally {
+            rec.stop()
+            rec.release()
         }
     }
 }
