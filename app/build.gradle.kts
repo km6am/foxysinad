@@ -56,6 +56,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         ndk { abiFilters += listOf("arm64-v8a") }
+        manifestPlaceholders["appLabel"] = "Foxy SINAD"
     }
     // Release signing: the key and its passwords stay outside the repo, in
     // ~/.gradle/gradle.properties (foxysinad.keystore, .storePassword,
@@ -73,6 +74,13 @@ android {
         }
     }
     buildTypes {
+        // Debug builds install beside the release (their own ID, data and
+        // key), so testing never means uninstalling the real one.
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "Foxy SINAD debug"
+        }
         getByName("release") {
             isMinifyEnabled = false      // Chaquopy and the bridge are reached by reflection
             if (keystore != null) signingConfig = signingConfigs.getByName("release")
