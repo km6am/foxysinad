@@ -86,13 +86,8 @@ class MainActivity : Activity() {
          *  Returns "" or what went wrong, for the page's toast. */
         @JavascriptInterface
         fun share(folder: String): String {
-            val runs = File(filesDir, "runs").canonicalFile
-            val dir = File(folder).canonicalFile
-            if (dir != runs && !dir.path.startsWith(runs.path + File.separator))
-                return "only the app's runs can be shared"
-            val files = dir.listFiles { f ->
-                f.isFile && f.extension in setOf("csv", "png") && !f.name.endsWith(".partial.csv")
-            }.orEmpty().sortedBy { it.name }
+            val dir = runsFolder(folder) ?: return "only the app's runs can be shared"
+            val files = finishedFiles(dir)
             if (files.isEmpty()) return "no finished files in ${dir.name}"
             val uris = ArrayList(files.map {
                 FileProvider.getUriForFile(this@MainActivity, "$packageName.files", it)
@@ -112,6 +107,18 @@ class MainActivity : Activity() {
             return ""
         }
     }
+
+    /** The folder, if it's runs/ or inside it; null for anything else. */
+    private fun runsFolder(folder: String): File? {
+        val runs = File(filesDir, "runs").canonicalFile
+        val dir = File(folder).canonicalFile
+        return dir.takeIf { it == runs || it.path.startsWith(runs.path + File.separator) }
+    }
+
+    /** A folder's finished CSVs and PNGs, by name; a run still going isn't one. */
+    private fun finishedFiles(dir: File): List<File> = dir.listFiles { f ->
+        f.isFile && f.extension in setOf("csv", "png") && !f.name.endsWith(".partial.csv")
+    }.orEmpty().sortedBy { it.name }
 
     inner class Sink {
         fun event(json: String) {
