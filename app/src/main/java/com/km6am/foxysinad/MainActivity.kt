@@ -3,15 +3,21 @@ package com.km6am.foxysinad
 import android.Manifest
 import android.app.Activity
 import android.content.ClipData
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -19,6 +25,7 @@ import androidx.core.content.FileProvider
 import com.chaquo.python.PyObject
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import kotlin.concurrent.thread
 
 private const val TAG = "FoxySinad"
@@ -103,10 +110,56 @@ class MainActivity : Activity() {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             Log.i(TAG, "share: ${files.size} files from ${dir.name}")
-            runOnUiThread { startActivity(Intent.createChooser(send, "Share ${files.size} files")) }
+            runOnUiThread { startActivity(Intent.createChooser(send, "Share ${count(files)}")) }
             return ""
         }
+
+        /** The folder's finished CSVs and PNGs, copied to Download/FoxySINAD/<folder>,
+         *  where the Files app (and a computer over USB) can see them. No
+         *  permission needed. Saving again replaces the copies this install made.
+         *  Returns what happened, for the page's toast. */
+        @JavascriptInterface
+        fun save(folder: String): String {
+            val dir = runsFolder(folder) ?: return "only the app's runs can be saved"
+            val files = finishedFiles(dir)
+            if (files.isEmpty()) return "no finished files in ${dir.name}"
+            val rel = "${Environment.DIRECTORY_DOWNLOADS}/FoxySINAD/${dir.name}/"
+            return try {
+                for (f in files) {
+                    val uri = savedCopy(rel, f.name) ?: contentResolver.insert(
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        ContentValues().apply {
+                            put(MediaStore.MediaColumns.DISPLAY_NAME, f.name)
+                            put(MediaStore.MediaColumns.MIME_TYPE, MimeTypeMap.getSingleton()
+                                .getMimeTypeFromExtension(f.extension) ?: "application/octet-stream")
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, rel)
+                        }) ?: throw IOException("couldn't create ${f.name}")
+                    contentResolver.openOutputStream(uri, "wt")!!.use { out ->
+                        f.inputStream().use { it.copyTo(out) }
+                    }
+                }
+                Log.i(TAG, "save: ${files.size} files to $rel")
+                "Saved ${count(files)} to $rel"
+            } catch (e: Exception) {
+                Log.e(TAG, "save failed", e)
+                "couldn't save: ${e.message}"
+            }
+        }
     }
+
+    /** This install's earlier copy of a file in Downloads, to overwrite; null if
+     *  there's none (another install's copies aren't visible, so those get a
+     *  numbered name from Android instead). */
+    private fun savedCopy(rel: String, name: String): Uri? = contentResolver.query(
+        MediaStore.Downloads.EXTERNAL_CONTENT_URI, arrayOf(MediaStore.MediaColumns._ID),
+        "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
+        arrayOf(rel, name), null
+    )?.use { c ->
+        if (c.moveToFirst()) ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0))
+        else null
+    }
+
+    private fun count(files: List<File>) = if (files.size == 1) "1 file" else "${files.size} files"
 
     /** The folder, if it's runs/ or inside it; null for anything else. */
     private fun runsFolder(folder: String): File? {

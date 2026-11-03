@@ -11,5 +11,7 @@ First public version.
 - PicoFox over Android's USB link (SCPI, firmware 0.4.0); radio audio from a
   USB sound card through AudioRecord, in 0.25 s blocks.
 - Listening along on the phone's own speaker, never the USB sound card.
+- A session's files go out through Android's share sheet, or are saved to
+  Download/FoxySINAD/<session>, where the Files app and a computer can reach them.
 - The build takes the engine, page and driver from the foxsinad and
   foxsinad-firmware checkouts and logs their commits at startup.
